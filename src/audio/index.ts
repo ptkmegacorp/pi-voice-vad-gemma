@@ -1,8 +1,2 @@
 export { createMicRecorder } from "./mic.js";
-export { createAudioSpeaker } from "./speaker.js";
-export type {
-  MicRecorder,
-  MicOptions,
-  AudioSpeaker,
-  SpeakerOptions,
-} from "../types.js";
+export type { MicRecorder, MicOptions } from "../types.js";

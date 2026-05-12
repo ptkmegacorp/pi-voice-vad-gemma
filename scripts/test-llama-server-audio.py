@@ -14,8 +14,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("audio_file")
     parser.add_argument("--endpoint", default="http://127.0.0.1:8090/v1/chat/completions")
-    parser.add_argument("--model", default="gemma-4-E2B-it")
-    parser.add_argument("--api-key", default="no-key")
+    parser.add_argument("--model", default="gemma-4-e2b-audio-local")
+    parser.add_argument("--api-key", default="llama-server")
     args = parser.parse_args()
 
     with open(args.audio_file, "rb") as f:

@@ -20,7 +20,8 @@ continuous mic raw PCM
 
 - No TTS response path.
 - No cloud STT path.
-- No Whisper/Deepgram as the primary path.
+- No Whisper/Deepgram fallback.
+- No legacy provider-selection UI.
 - No RMS threshold VAD as the primary path.
 
 ## Required local services
@@ -35,8 +36,8 @@ continuous mic raw PCM
 |---|---|
 | raw PCM capture | `src/audio/mic.ts` |
 | Silero VAD | `src/audio/mic.ts` using `silero-realtime-vad` |
-| utterance buffering gate | `src/index.ts` `vadSpeechActive` |
-| WAV normalization/save | `src/stt/gemma4-audio.ts` |
-| Gemma audio call | `src/stt/gemma4-audio.ts` |
+| utterance buffering gate | `src/index.ts` `speechActive` |
+| WAV normalization/save | `src/gemma-audio.ts` |
+| Gemma audio call | `src/gemma-audio.ts` |
 | leading `pi` filter | `src/index.ts` `normalizeVoiceMessage()` |
 | Pi injection | `src/index.ts` `pi.sendUserMessage()` |

@@ -1,8 +1,8 @@
 # pi-voice-gemma
 
-Pi voice input using **Silero VAD** and **Gemma 4 native audio** through the local GGUF `llama-server`.
+Standalone Pi voice input extension using **Silero VAD** and **Gemma 4 native audio** through a local GGUF `llama-server`.
 
-This project is no longer a general STT/TTS voice assistant. The source-of-truth flow is:
+This is not a general STT/TTS assistant fork. It has one job: turn spoken utterances into Pi user messages.
 
 ```text
 continuous mic raw PCM
@@ -10,42 +10,45 @@ continuous mic raw PCM
 → buffer utterance audio
 → Silero VAD detects speech end after ~800 ms silence
 → save /tmp/pi-voice/utterance.wav
-→ ensure 16 kHz mono WAV PCM via ffmpeg
-→ send audio to Gemma 4 E2B through llama-server input_audio
-→ prompt: "Transcribe this speech. Output only the text."
+→ ffmpeg normalizes to 16 kHz mono WAV PCM
+→ send audio to Gemma 4 through llama-server input_audio
 → strip leading address prefix "pi"
 → pi.sendUserMessage(cleaned text)
-→ Pi responds in terminal text
 ```
 
-No TTS is required or expected.
+No TTS. No cloud STT providers. No Whisper fallback.
 
-## Runtime assumptions
-
-Local llama-server audio endpoint:
+## Commands
 
 ```text
-http://127.0.0.1:8090/v1/chat/completions
+/vad start   continuous VAD loop
+/vad test    one utterance only
+/vad stop    stop listening
+/vad status  show runtime status
+/vad config  write default config to ~/.pi/voice-gemma.json
 ```
 
-Model runtime:
+Example:
 
 ```text
-/home/bot/models/gemma-4-E2B-it-IQ4_NL.gguf
-/home/bot/models/mmproj-gemma-4-E2B-it-Q8_0.gguf
+/vad test
+say: "pi check the server logs"
+Pi receives: "check the server logs"
 ```
 
-Pi model id:
+## Runtime requirements
 
-```text
-gemma-4-e2b-audio-local
-```
+- `ffmpeg`
+- Linux `arecord` or macOS/Windows `sox`
+- local `llama-server` on `http://127.0.0.1:8090/v1/chat/completions`
+- Gemma 4 audio-capable GGUF and mmproj
 
-## Safe llama-server command
+Safe local server:
 
 ```bash
-/home/bot/atomic-llama-cpp-turboquant/build/bin/llama-server \
+/home/bot/llama.cpp/build/bin/llama-server \
   -m /home/bot/models/gemma-4-E2B-it-IQ4_NL.gguf \
+  -a gemma-4-e2b-audio-local \
   --mmproj /home/bot/models/mmproj-gemma-4-E2B-it-Q8_0.gguf \
   --no-mmproj-offload \
   --host 127.0.0.1 --port 8090 \
@@ -58,45 +61,25 @@ gemma-4-e2b-audio-local
   --metrics --slots
 ```
 
-Checks:
+## Config
 
-```bash
-curl http://127.0.0.1:8090/health
-curl http://127.0.0.1:8090/v1/models
-pi -p --no-session --no-tools --model gemma-4-e2b-audio-local "Reply with exactly: OK"
-```
-
-## Default config behavior
-
-Defaults in `src/config.ts` are set for this flow:
+Runtime config path:
 
 ```text
-stt.provider = gemma4-audio
-stt.mode = vad
-stt.autoSend = true
-stt.vadSilenceMs = 800
-stt.interimResults = false
-tts.triggerMode = manual
-conversation.enabled = true
-conversation.autoListenAfterTTS = false
+~/.pi/voice-gemma.json
 ```
 
-Runtime config lives at:
-
-```text
-/home/bot/.pi/voice.json
-```
+Defaults live in `src/config.ts`.
 
 ## Important files
 
 ```text
-src/audio/mic.ts                 Silero VAD integration
-src/stt/gemma4-audio.ts          Gemma 4 llama-server audio transcription provider
-src/index.ts                     Pi injection and leading "pi" prefix filter
-docs/SILERO_VAD.md               VAD source-of-truth details
-docs/GEMMA4_AUDIO_BUILD_PLAN.md  Build plan and acceptance criteria
-README-GEMMA.md                  Runtime notes
-scripts/test-llama-server-audio.py
+src/index.ts        Pi extension entry and /vad command
+src/audio/mic.ts    mic capture + Silero VAD
+src/gemma-audio.ts  ffmpeg normalization + llama-server input_audio
+src/wav.ts          WAV helper
+src/config.ts       standalone config
+docs/FLOW.md        source-of-truth flow
 ```
 
 ## Development
@@ -105,11 +88,3 @@ scripts/test-llama-server-audio.py
 npm install
 npx tsc --noEmit
 ```
-
-## Notes
-
-- `-it` means instruction-tuned, not text-only.
-- Gemma 4 E2B/E4B support audio input; output is text.
-- The mmproj is required for audio; the text GGUF alone is not enough.
-- llama.cpp audio support is experimental.
-- This remains turn-based at the model boundary: Silero is continuous, Gemma receives per-utterance clips.
