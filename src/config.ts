@@ -19,19 +19,31 @@ import type {
 // ─── Default Configuration ──────────────────────────────────────────────
 
 const DEFAULT_STT: STTConfig = {
-  provider: "deepgram",
-  mode: "toggle",
+  provider: "gemma4-audio",
+  mode: "vad",
   language: "en-US",
   wakeWord: "hey pi",
-  autoSend: false,
-  vadSilenceMs: 1500,
-  interimResults: true,
-  providerOptions: {},
+  autoSend: true,
+  vadSilenceMs: 800,
+  interimResults: false,
+  device: "plughw:CARD=Device,DEV=0",
+  providerOptions: {
+    "gemma4-audio": {
+      endpoint: "http://127.0.0.1:8090/v1/chat/completions",
+      model: "gemma-4-E2B-it-IQ4_NL.gguf",
+      api_key: "llama-server",
+      ffmpeg_binary: "ffmpeg",
+      utterance_path: "/tmp/pi-voice/utterance.wav",
+      timeout_ms: 120000,
+      max_tokens: 256,
+      prompt: "Transcribe this speech. Output only the text.",
+    },
+  },
 };
 
 const DEFAULT_TTS: TTSConfig = {
-  provider: "edge-tts",
-  triggerMode: "voice-mode",
+  provider: "system",
+  triggerMode: "manual",
   voice: "en-US-AriaNeural",
   speed: 1.0,
   codeBlockBehavior: "announce",
@@ -49,9 +61,9 @@ const DEFAULT_VOICE_COMMANDS: VoiceCommandConfig = {
 };
 
 const DEFAULT_CONVERSATION: ConversationConfig = {
-  enabled: false,
-  autoListenAfterTTS: true,
-  delayBeforeListenMs: 500,
+  enabled: true,
+  autoListenAfterTTS: false,
+  delayBeforeListenMs: 250,
 };
 
 const DEFAULT_KEYBINDINGS: KeybindingConfig = {
@@ -206,6 +218,7 @@ export function getSTTProviders(): ProviderInfo[] {
     { name: "assemblyai", displayName: "AssemblyAI", requiresApiKey: true, hasApiKey: !!getApiKey("assemblyai"), isAvailable: !!getApiKey("assemblyai"), description: "Cheapest streaming ($0.003/min)" },
     { name: "elevenlabs", displayName: "ElevenLabs Scribe", requiresApiKey: true, hasApiKey: !!getApiKey("elevenlabs"), isAvailable: !!getApiKey("elevenlabs"), description: "Lowest latency (150ms)" },
     { name: "whisper-local", displayName: "Whisper Local", requiresApiKey: false, hasApiKey: true, isAvailable: true, description: "Free, offline, private" },
+    { name: "gemma4-audio", displayName: "Gemma 4 Native Audio", requiresApiKey: false, hasApiKey: true, isAvailable: true, description: "Local Gemma 4 E2B/E4B audio transcription via llama-server input_audio" },
   ];
 }
 
@@ -225,7 +238,7 @@ export function getTTSProviders(): ProviderInfo[] {
 
 // ─── Provider Validation ────────────────────────────────────────────────
 
-const VALID_STT_PROVIDERS = new Set<string>(["deepgram","openai","azure","google","assemblyai","elevenlabs","whisper-local"]);
+const VALID_STT_PROVIDERS = new Set<string>(["deepgram","openai","azure","google","assemblyai","elevenlabs","whisper-local","gemma4-audio"]);
 const VALID_TTS_PROVIDERS = new Set<string>(["openai","elevenlabs","cartesia","google","azure","deepgram","edge-tts","piper","system"]);
 
 export function isValidSTTProvider(name: string): boolean {

@@ -1,5 +1,8 @@
 node_modules/
 dist/
+run-logs/
+__pycache__/
+*.pyc
 *.js
 *.d.ts
 *.map

@@ -16,6 +16,7 @@ export interface STTConfig {
   autoSend: boolean;
   vadSilenceMs: number;
   interimResults: boolean;
+  device?: string;
   providerOptions: Record<string, Record<string, unknown>>;
 }
 
@@ -59,7 +60,8 @@ export type STTProviderName =
   | "google"
   | "assemblyai"
   | "elevenlabs"
-  | "whisper-local";
+  | "whisper-local"
+  | "gemma4-audio";
 
 export type TTSProviderName =
   | "openai"
@@ -159,6 +161,7 @@ export interface MicRecorder {
   isRecording(): boolean;
   onData(handler: (chunk: Buffer) => void): void;
   onError(handler: (error: Error) => void): void;
+  onSpeechStart(handler: (paddingChunk?: Buffer) => void): void;
   onSilence(handler: () => void): void;
   getLevel(): number;
   dispose(): void;

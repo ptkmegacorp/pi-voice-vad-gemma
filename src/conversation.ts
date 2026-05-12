@@ -96,26 +96,19 @@ export class ConversationController {
       return;
     }
 
-    // Don't stack timers
-    this.cancelPendingListen();
+    this.scheduleListen();
+  }
 
-    // If the mic is already on (e.g. user toggled manually) do nothing.
-    if (this.callbacks.isListening()) {
-      return;
-    }
-
-    this.listenTimer = setTimeout(async () => {
-      this.listenTimer = null;
-      // Guard again — user may have toggled state during the delay.
-      if (!this.enabled || this.callbacks.isListening()) {
-        return;
-      }
-      try {
-        await this.callbacks.startListening();
-      } catch {
-        // Mic start failure is surfaced elsewhere; swallow here.
-      }
-    }, this.config.delayBeforeListenMs);
+  /**
+   * Notify the controller that Pi finished responding when no TTS playback is
+   * being used. This is the Gemma-native-audio fork's preferred loop: Pi
+   * responds in text, then the mic reopens after the configured delay.
+   */
+  onResponseEndNoTTS(): void {
+    if (!this.enabled) return;
+    if (this.config.autoListenAfterTTS) return;
+    this.awaitingTTSEnd = false;
+    this.scheduleListen();
   }
 
   /**
@@ -182,6 +175,29 @@ export class ConversationController {
   /**
    * Cancel the pending auto-listen timer if one is scheduled.
    */
+  private scheduleListen(): void {
+    // Don't stack timers
+    this.cancelPendingListen();
+
+    // If the mic is already on (e.g. user toggled manually) do nothing.
+    if (this.callbacks.isListening()) {
+      return;
+    }
+
+    this.listenTimer = setTimeout(async () => {
+      this.listenTimer = null;
+      // Guard again — user may have toggled state during the delay.
+      if (!this.enabled || this.callbacks.isListening()) {
+        return;
+      }
+      try {
+        await this.callbacks.startListening();
+      } catch {
+        // Mic start failure is surfaced elsewhere; swallow here.
+      }
+    }, this.config.delayBeforeListenMs);
+  }
+
   private cancelPendingListen(): void {
     if (this.listenTimer !== null) {
       clearTimeout(this.listenTimer);

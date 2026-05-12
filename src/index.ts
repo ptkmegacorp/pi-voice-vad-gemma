@@ -1,13 +1,13 @@
 /**
- * pi-voice — Bidirectional voice extension for Pi
+ * pi-voice-gemma — Silero VAD + Gemma 4 native-audio input for Pi
  *
- * Features:
- * - Voice dictation (STT) with real-time partial transcription
- * - Text-to-speech (TTS) reading of agent responses
- * - Full conversation mode (speak → respond → listen loop)
- * - Voice commands (punctuation, submission, pi commands, navigation)
- * - Multi-provider support (7 STT + 9 TTS providers)
- * - Interactive settings panel and setup wizard
+ * Source-of-truth flow:
+ * continuous raw PCM mic -> Silero speech start -> utterance buffer ->
+ * Silero speech end after ~800ms silence -> /tmp/pi-voice/utterance.wav ->
+ * Gemma 4 llama-server input_audio transcription -> strip leading "pi" ->
+ * pi.sendUserMessage(cleaned text).
+ *
+ * TTS is not part of the expected runtime behavior for this fork.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -94,6 +94,13 @@ export default function piVoice(pi: ExtensionAPI) {
   // Mutex for mic start/stop transitions
   let micTransitioning = false;
 
+  // In VAD mode, only buffer/send audio after Silero detects speech start.
+  let vadSpeechActive = false;
+
+  // /vad start is continuous: after each utterance, re-arm the mic.
+  // /vad test is one-shot.
+  let vadContinuous = false;
+
   // Throttle for audio level updates
   let lastLevelUpdate = 0;
 
@@ -132,12 +139,14 @@ export default function piVoice(pi: ExtensionAPI) {
   async function ensureMic(): Promise<MicRecorder> {
     if (!mic) {
       mic = createMicRecorder(
-        { sampleRate: 16000, channels: 1, bitDepth: 16 },
+        { sampleRate: 16000, channels: 1, bitDepth: 16, device: config.stt.device },
         config.stt.vadSilenceMs
       );
 
       mic.onData((chunk) => {
-        sttProvider?.sendAudio(chunk);
+        if (config.stt.mode !== "vad" || vadSpeechActive) {
+          sttProvider?.sendAudio(chunk);
+        }
         const now = Date.now();
         if (now - lastLevelUpdate > 200) {
           state.audioLevel = mic!.getLevel();
@@ -146,8 +155,16 @@ export default function piVoice(pi: ExtensionAPI) {
         }
       });
 
+      mic.onSpeechStart((paddingChunk) => {
+        vadSpeechActive = true;
+        if (paddingChunk && paddingChunk.length > 0) {
+          sttProvider?.sendAudio(paddingChunk);
+        }
+      });
+
       mic.onSilence(() => {
-        if (config.stt.mode === "vad" && state.isListening) {
+        if (config.stt.mode === "vad" && state.isListening && vadSpeechActive) {
+          vadSpeechActive = false;
           stopListening(currentCtx);
         }
       });
@@ -157,6 +174,7 @@ export default function piVoice(pi: ExtensionAPI) {
         currentCtx.ui.notify(`Mic error: ${err.message}`, "error");
         state.isListening = false;
         state.micActive = false;
+        vadSpeechActive = false;
         sttProvider?.stopListening().catch(() => { /* swallow cleanup errors */ });
         state.ttsActive = shouldTTSBeActive();
         updateStatus();
@@ -287,6 +305,7 @@ export default function piVoice(pi: ExtensionAPI) {
       state.micActive = true;
       state.ttsActive = shouldTTSBeActive();
       state.currentTranscript = "";
+      vadSpeechActive = config.stt.mode !== "vad";
       updateStatus();
     } catch (err: any) {
       state.isListening = false;
@@ -308,6 +327,7 @@ export default function piVoice(pi: ExtensionAPI) {
       state.micActive = config.stt.mode === "toggle"; // Stay "active" in toggle mode
       state.ttsActive = shouldTTSBeActive();
       state.currentTranscript = "";
+      vadSpeechActive = false;
       updateStatus();
 
       if (finalTranscript?.trim()) {
@@ -315,10 +335,18 @@ export default function piVoice(pi: ExtensionAPI) {
       }
     } catch (err: any) {
       state.isListening = false;
+      vadSpeechActive = false;
       updateStatus();
       ctx?.ui?.notify(`Failed to stop listening: ${err.message}`, "error");
     } finally {
       micTransitioning = false;
+      if (vadContinuous && config.stt.mode === "vad" && ctx?.hasUI) {
+        setTimeout(() => {
+          if (vadContinuous && !state.isListening && !micTransitioning) {
+            void startListening(ctx);
+          }
+        }, 250);
+      }
     }
   }
 
@@ -333,7 +361,12 @@ export default function piVoice(pi: ExtensionAPI) {
       state.currentTranscript += (state.currentTranscript ? " " : "") + transcript.text;
     }
 
-    // Show real-time partial transcription in editor
+    // In the Silero/Gemma source-of-truth flow, transcripts are commands to
+    // inject, not draft text for the editor. Avoid putting recognized speech in
+    // the prompt box when autoSend is enabled.
+    if (config.stt.autoSend) return;
+
+    // Manual mode only: show real-time partial transcription in editor.
     const display = transcript.isFinal
       ? state.currentTranscript
       : state.currentTranscript + (state.currentTranscript ? " " : "") + transcript.text;
@@ -341,7 +374,16 @@ export default function piVoice(pi: ExtensionAPI) {
     currentCtx.ui.setEditorText(display);
   }
 
+  function normalizeVoiceMessage(text: string): string {
+    // Wake/addressing prefix: "pi check the server logs" -> "check the server logs".
+    // Keep this deliberately narrow so words like "pipeline" are untouched.
+    return text.trim().replace(/^pi[,.!?:;\s-]+/i, "").trim();
+  }
+
   function sendVoiceMessage(text: string): void {
+    text = normalizeVoiceMessage(text);
+    if (!text) return;
+    currentCtx?.ui?.setEditorText?.("");
     if (currentCtx?.isIdle?.()) {
       pi.sendUserMessage(text);
     } else {
@@ -565,15 +607,9 @@ export default function piVoice(pi: ExtensionAPI) {
   // ── TTS trigger logic ─────────────────────────────────────────────
 
   function shouldTTSBeActive(): boolean {
-    if (state.ttsMuted) return false;
-    switch (state.ttsTriggerMode) {
-      case "always":
-        return true;
-      case "voice-mode":
-        return state.micActive || state.conversationMode;
-      case "manual":
-        return false;
-    }
+    // Source-of-truth flow for this fork has no TTS response path. Keep the
+    // legacy TTS plumbing inert so Pi responds in terminal text only.
+    return false;
   }
 
   // ── Config Management ──────────────────────────────────────────────
@@ -719,6 +755,9 @@ export default function piVoice(pi: ExtensionAPI) {
 
   pi.on("agent_end", async (_event, _ctx) => {
     agentStreaming = false;
+    if (!shouldTTSBeActive()) {
+      ensureConversationController().onResponseEndNoTTS();
+    }
   });
 
   // ── Keyboard Handling ──────────────────────────────────────────────
@@ -959,6 +998,61 @@ export default function piVoice(pi: ExtensionAPI) {
           ctx.ui.notify(lines.join("\n"), "info");
           break;
         }
+      }
+    },
+  });
+
+  pi.registerCommand("vad", {
+    description: "Silero/Gemma mic control — /vad [start|stop|status|test]",
+    handler: async (args, ctx) => {
+      currentCtx = ctx;
+      const subcommand = ((args ?? "").trim().split(/\s+/)[0] || "start").toLowerCase();
+
+      switch (subcommand) {
+        case "start":
+        case "on":
+          vadContinuous = true;
+          await startListening(ctx);
+          ctx.ui.notify(
+            "🎙️ Silero VAD mic started. Speak a phrase like: 'pi check the server logs'. VAD will stop the utterance after ~800ms silence and send it to Gemma.",
+            "success",
+          );
+          break;
+
+        case "stop":
+        case "off":
+          vadContinuous = false;
+          await stopListening(ctx);
+          ctx.ui.notify("🎙️ Silero VAD mic stopped.", "info");
+          break;
+
+        case "test":
+          vadContinuous = false;
+          await startListening(ctx);
+          ctx.ui.notify(
+            "🎙️ VAD test armed. Say: 'pi say exactly testing one two three'. Expected injected prompt: 'say exactly testing one two three'.",
+            "info",
+          );
+          break;
+
+        case "status":
+        default:
+          ctx.ui.notify(
+            [
+              "🎙️ Silero/Gemma VAD status",
+              `Mic: ${state.isListening ? "🟢 Listening" : state.micActive ? "🟡 Ready" : "⚪ Off"}`,
+              `Continuous: ${vadContinuous ? "🟢 ON" : "⚪ OFF"}`,
+              `STT provider: ${config.stt.provider}`,
+              `Mode: ${config.stt.mode}`,
+              `VAD silence: ${config.stt.vadSilenceMs}ms`,
+              `Device: ${config.stt.device ?? "default"}`,
+              `Gemma endpoint: ${(config.stt.providerOptions?.["gemma4-audio"] as any)?.endpoint ?? "not configured"}`,
+              "",
+              "Commands: /vad start, /vad stop, /vad test, /vad status",
+            ].join("\n"),
+            "info",
+          );
+          break;
       }
     },
   });

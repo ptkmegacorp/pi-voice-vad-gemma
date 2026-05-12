@@ -1,46 +1,46 @@
 {
-  "name": "pi-voice",
+  "name": "pi-voice-gemma",
   "version": "1.0.0",
   "type": "module",
-  "description": "Bidirectional voice extension for Pi — dictate prompts via speech-to-text and listen to responses via text-to-speech, with full conversation mode",
+  "description": "Pi voice input extension using Silero VAD and Gemma 4 native audio via llama-server; text-only responses, no TTS",
   "keywords": [
     "pi-package",
     "pi-extension",
     "voice",
     "speech-to-text",
-    "text-to-speech",
+    "silero-vad",
+    "gemma4-audio",
     "stt",
-    "tts",
     "dictation",
     "voice-input",
-    "voice-output",
-    "conversation-mode",
-    "deepgram",
-    "openai",
-    "whisper",
-    "edge-tts",
-    "piper"
+    "llama-server",
+    "gguf",
+    "multimodal",
+    "audio"
   ],
   "license": "MIT",
-  "author": "vibecoder008",
+  "author": "vibecoder008; fork maintained locally for Gemma 4 native audio",
   "repository": {
     "type": "git",
     "url": "https://github.com/vibecoder008/pi-voice"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "dependencies": {
     "@deepgram/sdk": "^5.0.0",
-    "openai": "^4.80.0",
     "node-edge-tts": "^1.2.10",
     "node-record-lpcm16": "^1.0.1",
+    "openai": "^4.80.0",
+    "silero-realtime-vad": "^1.0.2",
     "ws": "^8.18.0"
   },
   "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*",
-    "@mariozechner/pi-ai": "*",
     "@sinclair/typebox": "*"
   },
   "devDependencies": {

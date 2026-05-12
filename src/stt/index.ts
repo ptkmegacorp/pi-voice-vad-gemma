@@ -7,6 +7,7 @@ import { GoogleSTTProvider } from "./google.js";
 import { AssemblyAISTTProvider } from "./assemblyai.js";
 import { ElevenLabsSTTProvider } from "./elevenlabs.js";
 import { WhisperLocalSTTProvider } from "./whisper-local.js";
+import { Gemma4AudioSTTProvider } from "./gemma4-audio.js";
 
 // ─── Re-exports ─────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ export { GoogleSTTProvider } from "./google.js";
 export { AssemblyAISTTProvider } from "./assemblyai.js";
 export { ElevenLabsSTTProvider } from "./elevenlabs.js";
 export { WhisperLocalSTTProvider } from "./whisper-local.js";
+export { Gemma4AudioSTTProvider } from "./gemma4-audio.js";
 
 /**
  * Factory function that creates an STT provider instance by name.
@@ -45,6 +47,8 @@ export function createSTTProvider(name: STTProviderName): STTProvider {
       return new ElevenLabsSTTProvider();
     case "whisper-local":
       return new WhisperLocalSTTProvider();
+    case "gemma4-audio":
+      return new Gemma4AudioSTTProvider();
     default: {
       const exhaustive: never = name;
       throw new Error(`Unknown STT provider: ${exhaustive}`);

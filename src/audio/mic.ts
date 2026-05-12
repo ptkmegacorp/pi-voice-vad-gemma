@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import type SileroVAD from "silero-realtime-vad";
 import type { MicRecorder, MicOptions } from "../types.js";
 
 const DEFAULT_MIC_OPTIONS: MicOptions = {
@@ -8,15 +9,9 @@ const DEFAULT_MIC_OPTIONS: MicOptions = {
   bitDepth: 16,
 };
 
-/** Silence threshold (default 1500ms) after which the `silence` event fires. */
-const DEFAULT_SILENCE_MS = 1500;
-
-/**
- * RMS floor below which audio is considered silence.
- * Value is a fraction of the Int16 range (0–32767). A level below ~1.5%
- * of full-scale is treated as background noise / silence.
- */
-const SILENCE_RMS_THRESHOLD = 500;
+/** Silero speech-end threshold. The project path uses ~800ms. */
+const DEFAULT_SILENCE_MS = 800;
+const SILERO_FRAME_SAMPLES = 512; // Silero requirement for 16 kHz audio.
 
 // ─── Platform helpers ────────────────────────────────────────────────────
 
@@ -90,22 +85,34 @@ function toolInstallHint(platform: NodeJS.Platform): string {
   }
 }
 
-// ─── RMS calculation ─────────────────────────────────────────────────────
+// ─── PCM helpers ─────────────────────────────────────────────────────────
 
-/**
- * Calculate root-mean-square of 16-bit signed PCM samples.
- * Returns a value in the range 0 – 32767.
- */
-function rms16(buf: Buffer): number {
+function int16PcmToFloat32(buf: Buffer): Float32Array {
+  const sampleCount = Math.floor(buf.length / 2);
+  const out = new Float32Array(sampleCount);
+  for (let i = 0; i < sampleCount; i++) {
+    out[i] = Math.max(-1, Math.min(1, buf.readInt16LE(i * 2) / 32768));
+  }
+  return out;
+}
+
+function float32ToInt16Pcm(samples: Float32Array): Buffer {
+  const out = Buffer.alloc(samples.length * 2);
+  for (let i = 0; i < samples.length; i++) {
+    const v = Math.max(-1, Math.min(1, samples[i]));
+    out.writeInt16LE(v < 0 ? Math.round(v * 32768) : Math.round(v * 32767), i * 2);
+  }
+  return out;
+}
+
+function pcmLevel(buf: Buffer): number {
   const sampleCount = Math.floor(buf.length / 2);
   if (sampleCount === 0) return 0;
-
-  let sumSquares = 0;
+  let peak = 0;
   for (let i = 0; i < sampleCount; i++) {
-    const sample = buf.readInt16LE(i * 2);
-    sumSquares += sample * sample;
+    peak = Math.max(peak, Math.abs(buf.readInt16LE(i * 2)));
   }
-  return Math.sqrt(sumSquares / sampleCount);
+  return Math.min(peak / 32767, 1);
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────
@@ -127,32 +134,44 @@ export function createMicRecorder(
   const emitter = new EventEmitter();
   let proc: ChildProcess | null = null;
   let recording = false;
+  let stopping = false;
   let disposed = false;
   let currentLevel = 0;
-  let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-  let inSilence = false;
+  let vad: SileroVAD | null = null;
+  let pendingSamples: Float32Array<ArrayBuffer> = new Float32Array(0);
 
-  // ── Silence tracking ────────────────────────────────────────────────
+  // ── Silero VAD tracking ─────────────────────────────────────────────
 
-  function resetSilenceTimer(): void {
-    inSilence = false;
-    if (silenceTimer !== null) {
-      clearTimeout(silenceTimer);
-    }
-    silenceTimer = setTimeout(() => {
-      if (recording && !disposed) {
-        inSilence = true;
-        emitter.emit("silence");
-      }
-    }, silenceTimeout);
+  function resetVadBuffers(): void {
+    pendingSamples = new Float32Array(0);
+    vad?.resetContext();
   }
 
-  function clearSilenceTimer(): void {
-    if (silenceTimer !== null) {
-      clearTimeout(silenceTimer);
-      silenceTimer = null;
+  function appendPendingSamples(next: Float32Array): void {
+    if (pendingSamples.length === 0) {
+      const copied = new Float32Array(next.length);
+      copied.set(next);
+      pendingSamples = copied;
+      return;
     }
-    inSilence = false;
+    const merged = new Float32Array(pendingSamples.length + next.length);
+    merged.set(pendingSamples, 0);
+    merged.set(next, pendingSamples.length);
+    pendingSamples = merged;
+  }
+
+  async function processVadSamples(samples: Float32Array): Promise<void> {
+    if (!vad) return;
+    appendPendingSamples(samples);
+    while (pendingSamples.length >= SILERO_FRAME_SAMPLES) {
+      const frame = pendingSamples.slice(0, SILERO_FRAME_SAMPLES);
+      pendingSamples = pendingSamples.slice(SILERO_FRAME_SAMPLES);
+      try {
+        await vad.processAudio(frame);
+      } catch (err) {
+        emitter.emit("error", err instanceof Error ? err : new Error(String(err)));
+      }
+    }
   }
 
   // ── Process management ──────────────────────────────────────────────
@@ -172,6 +191,7 @@ export function createMicRecorder(
     }
 
     if (!p.killed) {
+      stopping = true;
       p.kill("SIGTERM");
 
       // If the process hasn't exited after 500ms, force-kill.
@@ -205,6 +225,32 @@ export function createMicRecorder(
       }
 
       try {
+        const { default: SileroVADImpl } = await import("silero-realtime-vad");
+        vad = new SileroVADImpl({
+          sampleRate: 16000,
+          minSpeechDuration: 50,
+          minSilenceDuration: silenceTimeout,
+          prefixPaddingDuration: 300,
+          maxBufferedSpeech: 30000,
+          activationThreshold: 0.4,
+          context: true,
+        });
+        vad.on("SPEECH_STARTED", ({ paddingBuffer }) => {
+          emitter.emit("speechStart", float32ToInt16Pcm(paddingBuffer));
+        });
+        vad.on("SPEECH_ENDED", () => {
+          emitter.emit("silence");
+        });
+        resetVadBuffers();
+      } catch (err) {
+        emitter.emit(
+          "error",
+          new Error(`Failed to initialize Silero VAD: ${err instanceof Error ? err.message : String(err)}`),
+        );
+        return;
+      }
+
+      try {
         proc = spawn(desc.command, desc.args, {
           stdio: ["ignore", "pipe", "pipe"],
           env: desc.env,
@@ -220,22 +266,14 @@ export function createMicRecorder(
       }
 
       recording = true;
+      stopping = false;
       const thisProc = proc;
 
       thisProc.stdout!.on("data", (chunk: Buffer) => {
         if (!recording || disposed) return;
 
-        const level = rms16(chunk);
-        // Normalise to 0.0 – 1.0 (Int16 max = 32767).
-        currentLevel = Math.min(level / 32767, 1);
-
-        if (level > SILENCE_RMS_THRESHOLD) {
-          resetSilenceTimer();
-        } else if (silenceTimer === null && !inSilence) {
-          // First silent chunk — start counting.
-          resetSilenceTimer();
-        }
-
+        currentLevel = pcmLevel(chunk);
+        void processVadSamples(int16PcmToFloat32(chunk));
         emitter.emit("data", chunk);
       });
 
@@ -245,6 +283,8 @@ export function createMicRecorder(
         // real errors — only forward lines that look like failures.
         if (
           msg &&
+          recording &&
+          !stopping &&
           !msg.startsWith("Recording") &&
           !msg.startsWith("Input File")
         ) {
@@ -255,7 +295,7 @@ export function createMicRecorder(
       thisProc.on("error", (err: Error) => {
         if (proc === thisProc) {
           recording = false;
-          clearSilenceTimer();
+          resetVadBuffers();
         }
         const hint = toolInstallHint(platform);
         const msg =
@@ -267,11 +307,13 @@ export function createMicRecorder(
       thisProc.on("close", (code) => {
         if (proc === thisProc) {
           recording = false;
-          clearSilenceTimer();
+          resetVadBuffers();
           proc = null;
         }
-        // Exit code 0 or null (killed by signal) are normal stop paths.
-        if (code !== null && code !== 0) {
+        const wasStopping = stopping;
+        stopping = false;
+        // Exit code 0, null (killed by signal), or expected stop are normal stop paths.
+        if (!wasStopping && code !== null && code !== 0) {
           emitter.emit(
             "error",
             new Error(`"${desc.command}" exited with code ${code}`),
@@ -284,7 +326,7 @@ export function createMicRecorder(
     async stop(): Promise<void> {
       if (!recording) return;
       recording = false;
-      clearSilenceTimer();
+      resetVadBuffers();
       currentLevel = 0;
       killProc();
     },
@@ -304,10 +346,14 @@ export function createMicRecorder(
       emitter.on("error", handler);
     },
 
+    /** Register a handler that fires when Silero VAD detects speech start. */
+    onSpeechStart(handler: (paddingChunk?: Buffer) => void): void {
+      emitter.on("speechStart", handler);
+    },
+
     /**
-     * Register a handler that fires when sustained silence is detected.
-     * Silence is defined as RMS below the threshold for longer than the
-     * configured silence timeout.
+     * Register a handler that fires when Silero VAD detects speech end after
+     * the configured silence timeout.
      */
     onSilence(handler: () => void): void {
       emitter.on("silence", handler);
@@ -326,7 +372,7 @@ export function createMicRecorder(
       if (disposed) return;
       disposed = true;
       recording = false;
-      clearSilenceTimer();
+      resetVadBuffers();
       killProc();
       emitter.removeAllListeners();
     },
