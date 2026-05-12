@@ -136,7 +136,7 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
 
   function statusText(): string {
     return [
-      "🎙️ pi-voice-gemma status",
+      "🎙️ pi-voice-vad-gemma status",
       `Mic: ${listening ? "🟢 listening" : "⚪ off"}`,
       `Speech: ${speechActive ? "🟢 active" : "⚪ waiting"}`,
       `Continuous: ${continuous ? "🟢 on" : "⚪ off"}`,
@@ -152,7 +152,7 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     currentCtx = ctx;
-    notify("🎙️ pi-voice-gemma ready. Use /vad start, /vad test, /vad stop, /vad status.", "info");
+    notify("🎙️ pi-voice-vad-gemma ready. Use /vad start, /vad test, /vad stop, /vad status.", "info");
   });
 
   pi.registerCommand("vad", {

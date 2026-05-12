@@ -1,4 +1,4 @@
-# pi-voice-gemma runtime notes
+# pi-voice-vad-gemma runtime notes
 
 See `docs/FLOW.md` for the canonical behavior.
 

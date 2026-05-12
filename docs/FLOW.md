@@ -1,6 +1,6 @@
 # Source-of-truth flow
 
-This file is the canonical behavior for pi-voice-gemma.
+This file is the canonical behavior for pi-voice-vad-gemma.
 
 ```text
 continuous mic raw PCM

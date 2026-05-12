@@ -1,5 +1,5 @@
 {
-  "name": "pi-voice-gemma",
+  "name": "pi-voice-vad-gemma",
   "version": "1.0.0",
   "type": "module",
   "description": "Standalone Pi voice input extension using Silero VAD and Gemma 4 native audio via llama-server",
@@ -15,7 +15,7 @@
     "audio"
   ],
   "license": "MIT",
-  "author": "local standalone Gemma 4 native-audio fork",
+  "author": "local standalone Gemma 4 native-audio repo",
   "pi": {
     "extensions": [
       "./src/index.ts"

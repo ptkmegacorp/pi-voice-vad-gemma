@@ -1,8 +1,8 @@
-# pi-voice-gemma
+# pi-voice-vad-gemma
 
 Standalone Pi voice input extension using **Silero VAD** and **Gemma 4 native audio** through a local GGUF `llama-server`.
 
-This is not a general STT/TTS assistant fork. It has one job: turn spoken utterances into Pi user messages.
+This is not a general STT/TTS assistant. It has one job: turn spoken utterances into Pi user messages.
 
 ```text
 continuous mic raw PCM

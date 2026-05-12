@@ -16,7 +16,7 @@ TTS, cloud STT providers, Whisper, and legacy provider-selection UI are intentio
 ## Implemented architecture
 
 ```text
-pi-voice-gemma
+pi-voice-vad-gemma
   ├─ src/index.ts        /vad command and Pi message injection
   ├─ src/audio/mic.ts    arecord/sox capture + Silero VAD events
   ├─ src/gemma-audio.ts  WAV normalization + llama-server input_audio call
