@@ -16,6 +16,16 @@ continuous mic raw PCM
 → pi.sendUserMessage("check the server logs")
 ```
 
+Manual Ctrl+Space path:
+
+```text
+Ctrl+Space
+→ start mic recording immediately, bypassing VAD silence auto-stop
+→ buffer all mic PCM until second Ctrl+Space or max timer
+→ Ctrl+Space again
+→ stop mic, normalize/save WAV, transcribe with Gemma, send transcript as user message
+```
+
 ## Non-goals
 
 - No TTS response path.
@@ -37,6 +47,7 @@ continuous mic raw PCM
 | raw PCM capture | `src/audio/mic.ts` |
 | Silero VAD | `src/audio/mic.ts` using `silero-realtime-vad` |
 | utterance buffering gate | `src/index.ts` `speechActive` |
+| manual push-to-talk | `src/index.ts` `ctrl+space`, `manualRecording` |
 | WAV normalization/save | `src/gemma-audio.ts` |
 | Gemma audio call | `src/gemma-audio.ts` |
 | leading `pi` filter | `src/index.ts` `normalizeVoiceMessage()` |

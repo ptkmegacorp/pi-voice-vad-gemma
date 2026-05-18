@@ -9,7 +9,7 @@ export class GemmaAudioTranscriber {
   private audioChunks: Buffer[] = [];
   private totalAudioBytes = 0;
 
-  private static readonly MAX_AUDIO_SECONDS = 30;
+  private static readonly MAX_AUDIO_SECONDS = Number(process.env.PI_VOICE_MAX_AUDIO_SECONDS ?? "120");
   private static readonly SAMPLE_RATE = 16000;
   private static readonly CHANNELS = 1;
   private static readonly BIT_DEPTH = 16;
@@ -33,7 +33,7 @@ export class GemmaAudioTranscriber {
   addAudio(chunk: Buffer): void {
     this.totalAudioBytes += chunk.length;
     if (this.totalAudioBytes > GemmaAudioTranscriber.MAX_AUDIO_BYTES) {
-      throw new Error("Gemma 4 audio clip exceeded 30 seconds; stopping this turn.");
+      throw new Error(`Gemma 4 audio clip exceeded ${GemmaAudioTranscriber.MAX_AUDIO_SECONDS} seconds; stopping this turn.`);
     }
     this.audioChunks.push(chunk);
   }

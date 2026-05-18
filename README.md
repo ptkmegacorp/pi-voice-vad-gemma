@@ -16,11 +16,19 @@ continuous mic raw PCM
 → pi.sendUserMessage(cleaned text)
 ```
 
+Manual push-to-talk is also available:
+
+```text
+Ctrl+Space → start recording
+Ctrl+Space → stop, transcribe with Gemma, send transcript as a Pi user message
+```
+
 No TTS. No cloud STT providers. No Whisper fallback.
 
 ## Commands
 
 ```text
+Ctrl+Space  toggle manual recording: start, then transcribe/send
 /vad start   continuous VAD loop
 /vad test    one utterance only
 /vad stop    stop listening
@@ -52,7 +60,7 @@ Safe local server:
   --mmproj /home/bot/models/mmproj-gemma-4-E2B-it-Q8_0.gguf \
   --no-mmproj-offload \
   --host 127.0.0.1 --port 8090 \
-  -c 24576 \
+  -c 61440 \
   -ngl 99 \
   -fa off \
   --parallel 1 -np 1 \
@@ -70,6 +78,13 @@ Runtime config path:
 ```
 
 Defaults live in `src/config.ts`.
+
+Manual recording limits:
+
+```text
+PI_VOICE_MANUAL_MAX_MS=120000       # Ctrl+Space auto-stop/transcribe timer
+PI_VOICE_MAX_AUDIO_SECONDS=120      # hard audio buffer limit
+```
 
 ## Important files
 
