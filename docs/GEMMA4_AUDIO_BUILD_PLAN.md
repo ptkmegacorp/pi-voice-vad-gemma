@@ -43,10 +43,10 @@ continuous mic raw PCM
 ## Local llama-server
 
 ```bash
-/home/bot/llama.cpp/build/bin/llama-server \
-  -m /home/bot/models/gemma-4-E2B-it-IQ4_NL.gguf \
+$HOME/llama.cpp/build/bin/llama-server \
+  -m $HOME/models/gemma-4-E2B-it-IQ4_NL.gguf \
   -a gemma-4-e2b-audio-local \
-  --mmproj /home/bot/models/mmproj-gemma-4-E2B-it-Q8_0.gguf \
+  --mmproj $HOME/models/mmproj-gemma-4-E2B-it-Q8_0.gguf \
   --no-mmproj-offload \
   --host 127.0.0.1 --port 8090 \
   -c 24576 -ngl 99 -fa off --parallel 1 -np 1 \

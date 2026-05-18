@@ -51,13 +51,13 @@ Pi receives: "check the server logs"
 - local `llama-server` on `http://127.0.0.1:8090/v1/chat/completions`
 - Gemma 4 audio-capable GGUF and mmproj
 
-Safe local server:
+Safe local server example:
 
 ```bash
-/home/bot/llama.cpp/build/bin/llama-server \
-  -m /home/bot/models/gemma-4-E2B-it-IQ4_NL.gguf \
+$HOME/llama.cpp/build/bin/llama-server \
+  -m $HOME/models/gemma-4-E2B-it-IQ4_NL.gguf \
   -a gemma-4-e2b-audio-local \
-  --mmproj /home/bot/models/mmproj-gemma-4-E2B-it-Q8_0.gguf \
+  --mmproj $HOME/models/mmproj-gemma-4-E2B-it-Q8_0.gguf \
   --no-mmproj-offload \
   --host 127.0.0.1 --port 8090 \
   -c 61440 \
