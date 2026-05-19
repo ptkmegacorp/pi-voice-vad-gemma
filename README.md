@@ -14,7 +14,14 @@ continuous mic raw PCM
 → send audio to Gemma 4 through llama-server input_audio
 → strip leading address prefix "pi"
 → pi.sendUserMessage(cleaned text)
+→ Pig input layer receives the text
+→ pig-classifier-intent-router may transform it to a skill-expanded message
 ```
+
+This package owns audio/VAD/transcription only. Intent routing lives in the
+separate `pig-classifier-intent-router` extension, which sits in Pig's input
+layer. That router asks whether the transcript matches a known deterministic
+affordance; if not, the text continues as a normal Pig/Gemma message.
 
 Manual push-to-talk is also available:
 
@@ -34,6 +41,13 @@ Ctrl+Space  toggle manual recording: start, then transcribe/send
 /vad stop    stop listening
 /vad status  show runtime status
 /vad config  write default config to ~/.pi/voice-gemma.json
+```
+
+Router diagnostics live in the separate intent-router package:
+
+```text
+/intent-route <text>
+/intent-send <text>
 ```
 
 Example:

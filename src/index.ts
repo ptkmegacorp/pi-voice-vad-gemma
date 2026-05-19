@@ -30,6 +30,9 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
   function sendVoiceMessage(text: string): void {
     const cleaned = normalizeVoiceMessage(text);
     if (!cleaned) return;
+
+    // Voice owns audio → text only. pig-classifier-intent-router sits in Pig's
+    // input layer and transforms this message if it matches a deterministic affordance.
     currentCtx?.ui?.setEditorText?.("");
     if (currentCtx?.isIdle?.()) {
       pi.sendUserMessage(cleaned);
@@ -231,6 +234,7 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
       `Endpoint: ${config.endpoint}`,
       `Model: ${config.model}`,
       `Utterance: ${config.utterancePath}`,
+      `Routing: handled by pig-classifier-intent-router input extension`,
       `Config: ${getConfigPath()}`,
     ].join("\n");
   }
@@ -286,7 +290,7 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
           break;
 
         default:
-          notify("Usage: /vad [start|stop|test|status|config]. Ctrl+Space toggles manual recording.", "info");
+          notify("Usage: /vad [start|stop|test|status|config]. Ctrl+Space toggles manual recording. Use /intent-route <text> for router diagnostics.", "info");
           break;
       }
     },
