@@ -12,7 +12,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   timeoutMs: 120000,
   maxTokens: 256,
   prompt: "Transcribe this speech. Output only the text.",
-  micDevice: "plughw:CARD=Device,DEV=0",
+  micDevice: "pipewire",
   vadSilenceMs: 800,
 };
 
