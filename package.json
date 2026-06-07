@@ -2,20 +2,19 @@
   "name": "pi-voice-vad-gemma",
   "version": "1.0.0",
   "type": "module",
-  "description": "Standalone Pi voice input extension using Silero VAD and Gemma 4 native audio via llama-server",
+  "description": "Standalone Pig voice input extension using Silero VAD and local Moonshine STT",
   "keywords": [
     "pi-package",
     "pi-extension",
     "voice",
     "silero-vad",
-    "gemma4-audio",
-    "llama-server",
-    "gguf",
-    "multimodal",
+    "moonshine",
+    "sherpa-onnx",
+    "local-stt",
     "audio"
   ],
   "license": "MIT",
-  "author": "local standalone Gemma 4 native-audio repo",
+  "author": "local Pig voice repo",
   "pi": {
     "extensions": [
       "./src/index.ts"

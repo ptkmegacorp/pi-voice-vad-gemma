@@ -9,6 +9,25 @@ export interface VoiceConfig {
   prompt: string;
   micDevice?: string;
   vadSilenceMs: number;
+  sttBackend: "sherpa-moonshine" | "whisper.cpp";
+  sherpaMoonshineModelDir: string;
+  sherpaThreads: number;
+  whisperBinary: string;
+  whisperModel: string;
+  whisperThreads: number;
+  whisperLanguage: string;
+  ttsEnabled: boolean;
+  ttsBackend: "sherpa-onnx-piper";
+  ttsBinary: string;
+  ttsModel: string;
+  ttsTokens: string;
+  ttsDataDir: string;
+  ttsThreads: number;
+  ttsLengthScale: number;
+  ttsMaxChars: number;
+  ttsOutputPath: string;
+  playbackBinary: string;
+  playbackDevice?: string;
 }
 
 export interface MicOptions {

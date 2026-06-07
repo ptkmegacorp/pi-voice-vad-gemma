@@ -1,35 +1,33 @@
 # pi-voice-vad-gemma
 
-Standalone Pi voice input extension using **Silero VAD** and **Gemma 4 native audio** through a local GGUF `llama-server`.
+Standalone Pig/Pi voice input extension using **Silero VAD** and local STT.
 
-This is not a general STT/TTS assistant. It has one job: turn spoken utterances into Pi user messages.
+Current Neptune default: **sherpa-onnx Moonshine Tiny** for speech-to-text, then send the transcript into Pig's normal text pipeline. The old Gemma 4 E2B native-audio server path is no longer the active architecture.
+
+This package owns audio/VAD/transcription only. It does not perform intent routing; any deterministic command routing belongs to separately installed Pig input extensions.
+
+## Flow
 
 ```text
 continuous mic raw PCM
 → Silero VAD detects speech start
 → buffer utterance audio
 → Silero VAD detects speech end after ~800 ms silence
-→ save /tmp/pi-voice/utterance.wav
-→ ffmpeg normalizes to 16 kHz mono WAV PCM
-→ send audio to Gemma 4 through llama-server input_audio
+→ save /tmp/pi-voice/utterance.wav for debugging
+→ transcribe locally with sherpa-onnx Moonshine Tiny
 → strip leading address prefix "pi"
 → pi.sendUserMessage(cleaned text)
-→ Pig input layer receives the text
-→ Pig handles it through the normal input pipeline
+→ Pig handles it through the normal text pipeline
 ```
 
-This package owns audio/VAD/transcription only. It does not perform intent
-routing; any deterministic command routing belongs to separately installed Pig
-input extensions.
-
-Manual push-to-talk is also available:
+Manual push-to-talk:
 
 ```text
 Ctrl+Space → start recording
-Ctrl+Space → stop, transcribe with Gemma, send transcript as a Pi user message
+Ctrl+Space → stop, transcribe, send transcript as a user message
 ```
 
-No TTS. No cloud STT providers. No Whisper fallback.
+TTS code exists but is disabled by default.
 
 ## Commands
 
@@ -39,48 +37,36 @@ Ctrl+Space  toggle manual recording: start, then transcribe/send
 /vad test    one utterance only
 /vad stop    stop listening
 /vad status  show runtime status
-/vad config  write default config to ~/.pi/voice-gemma.json
-```
-
-Example:
-
-```text
-/vad test
-say: "pi check the server logs"
-Pi receives: "check the server logs"
+/vad config  write current/default config
+/tts status  TTS status; TTS remains disabled by default
 ```
 
 ## Runtime requirements
 
-- `ffmpeg`
-- Linux `arecord` or macOS/Windows `sox`
-- local `llama-server` on `http://127.0.0.1:8090/v1/chat/completions`
-- Gemma 4 audio-capable GGUF and mmproj
+- Linux `arecord` or macOS/Windows `sox` for mic capture
+- sherpa-onnx-node available from Pi's installed package tree
+- Current Neptune Moonshine model dir: `/home/bot/.pi/models/moonshine-tiny`
+- Current Neptune USB mic: ALSA `plughw:2,0`
 
-Safe local server example:
+Whisper fallback code remains available:
 
-```bash
-$HOME/llama.cpp/build/bin/llama-server \
-  -m $HOME/models/gemma-4-E2B-it-IQ4_NL.gguf \
-  -a gemma-4-e2b-audio-local \
-  --mmproj $HOME/models/mmproj-gemma-4-E2B-it-Q8_0.gguf \
-  --no-mmproj-offload \
-  --host 127.0.0.1 --port 8090 \
-  -c 61440 \
-  -ngl 99 \
-  -fa off \
-  --parallel 1 -np 1 \
-  -t 4 -tb 4 -b 64 -ub 32 \
-  -rea off --reasoning-budget 0 \
-  --metrics --slots
+```text
+/home/bot/whisper.cpp/build/bin/whisper-cli
+/home/bot/whisper.cpp/models/ggml-base.en.bin
 ```
 
 ## Config
 
-Runtime config path:
+Runtime config path defaults to Pig:
 
 ```text
-~/.pi/voice-gemma.json
+~/.pig/voice-gemma.json
+```
+
+Override with:
+
+```text
+PI_VOICE_GEMMA_CONFIG=/path/to/voice-gemma.json
 ```
 
 Defaults live in `src/config.ts`.
@@ -88,19 +74,19 @@ Defaults live in `src/config.ts`.
 Manual recording limits:
 
 ```text
-PI_VOICE_MANUAL_MAX_MS=120000       # Ctrl+Space auto-stop/transcribe timer
-PI_VOICE_MAX_AUDIO_SECONDS=120      # hard audio buffer limit
+PI_VOICE_MANUAL_MAX_MS=120000
+PI_VOICE_MAX_AUDIO_SECONDS=120
 ```
 
 ## Important files
 
 ```text
-src/index.ts        Pi extension entry and /vad command
-src/audio/mic.ts    mic capture + Silero VAD
-src/gemma-audio.ts  ffmpeg normalization + llama-server input_audio
-src/wav.ts          WAV helper
-src/config.ts       standalone config
-docs/FLOW.md        source-of-truth flow
+src/index.ts             extension entry, Ctrl+Space, /vad, /tts
+src/audio/mic.ts         mic capture + Silero VAD
+src/sherpa-moonshine.ts  sherpa-onnx Moonshine Tiny STT
+src/whisper-cpu.ts       whisper.cpp fallback STT
+src/wav.ts               WAV helper
+src/config.ts            standalone config
 ```
 
 ## Development
