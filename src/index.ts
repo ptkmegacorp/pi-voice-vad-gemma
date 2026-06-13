@@ -1,3 +1,5 @@
+import { appendFileSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { createMicRecorder } from "./audio/mic.js";
 import { loadConfig, saveConfig, getConfigPath } from "./config.js";
@@ -22,9 +24,18 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
   let ttsBusy = false;
   let lastLevel = 0;
   let manualTimer: ReturnType<typeof setTimeout> | null = null;
+  let statusPollTimer: ReturnType<typeof setInterval> | null = null;
   const manualMaxMs = Number(process.env.PI_VOICE_MANUAL_MAX_MS ?? "120000");
+  const manualTailMs = Number(process.env.PI_VOICE_MANUAL_TAIL_MS ?? "700");
+  const voiceStatusScript = "/home/bot/voice-router-pipecat/voice_status.py";
+  const voiceStatusFile = "/home/bot/.cache/pipecat-voice/status.json";
 
   function notify(message: string, type: "info" | "success" | "warning" | "error" = "info"): void {
+    try {
+      appendFileSync("/tmp/pig-voice-vad-gemma.log", `${new Date().toISOString()} [${type}] ${message}\n`);
+    } catch {
+      // Best-effort diagnostics only.
+    }
     currentCtx?.ui?.notify?.(message, type);
   }
 
@@ -32,12 +43,97 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
     return text.trim().replace(/^pi[,.!?:;\s-]+/i, "").trim();
   }
 
+  function setVoiceStatus(key: "enabled" | "hearing" | "mode", value: string): void {
+    spawnSync(voiceStatusScript, [key, value], { stdio: "ignore" });
+  }
+
+  function getVoiceStatusEnabled(): boolean {
+    try {
+      const status = JSON.parse(readFileSync(voiceStatusFile, "utf8"));
+      return !!status.enabled;
+    } catch {
+      return false;
+    }
+  }
+
+  function openYoutubeSearch(query: string): void {
+    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query).replace(/%20/g, "+")}`;
+    spawn("i3-msg", ["exec", `firefox --new-window ${url}`], { detached: true, stdio: "ignore" }).unref();
+  }
+
+  function scrollFocused(direction: "up" | "down"): void {
+    const button = direction === "down" ? "5" : "4";
+    spawn("xdotool", ["click", "--repeat", "5", button], { detached: true, stdio: "ignore" }).unref();
+  }
+
+  function listRoutedCommands(): string {
+    return [
+      "direct routed voice commands:",
+      "scroll down / page down / go down",
+      "scroll up / page up / go up",
+      "make full screen / fullscreen",
+      "exit fullscreen / leave fullscreen",
+      "open youtube and search for ...",
+      "list all routed commands",
+      "anything else goes to Pig/main LLM",
+    ].join("\n");
+  }
+
+  function handleDirectVoiceRoute(cleaned: string): boolean {
+    const t = cleaned.toLowerCase().replace(/-/g, " ").replace(/\s+/g, " ").trim();
+
+    if (["scroll down", "go down", "page down", "move down"].includes(t)) {
+      scrollFocused("down");
+      notify("🎙️ routed: scroll down", "info");
+      return true;
+    }
+
+    if (["scroll up", "go up", "page up", "move up"].includes(t)) {
+      scrollFocused("up");
+      notify("🎙️ routed: scroll up", "info");
+      return true;
+    }
+
+    if (["make full screen", "make fullscreen", "fullscreen", "full screen", "toggle full screen", "toggle fullscreen"].includes(t)) {
+      spawn("i3-msg", ["fullscreen", "toggle"], { detached: true, stdio: "ignore" }).unref();
+      notify("🎙️ routed: fullscreen toggle", "info");
+      return true;
+    }
+
+    if (["exit fullscreen", "exit full screen", "leave fullscreen", "leave full screen", "disable fullscreen", "disable full screen"].includes(t)) {
+      spawn("i3-msg", ["fullscreen", "disable"], { detached: true, stdio: "ignore" }).unref();
+      notify("🎙️ routed: exit fullscreen", "info");
+      return true;
+    }
+
+    if (["list all routed commands", "list routed commands", "what commands can i say", "show routed commands", "show voice commands"].includes(t)) {
+      notify(listRoutedCommands(), "info");
+      return true;
+    }
+
+    const youtubePrefix = "open youtube and search for ";
+    if (t.startsWith(youtubePrefix)) {
+      const query = cleaned.slice(youtubePrefix.length).trim();
+      if (query) {
+        openYoutubeSearch(query);
+        notify(`🎙️ routed: YouTube search for ${query}`, "info");
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function sendVoiceMessage(text: string): void {
     const cleaned = normalizeVoiceMessage(text);
     if (!cleaned) return;
 
-    // Voice owns audio → text only. Pig's input layer may transform this
-    // message if another installed extension matches a deterministic affordance.
+    setVoiceStatus("mode", "thinking");
+    if (handleDirectVoiceRoute(cleaned)) {
+      setVoiceStatus("mode", "idle");
+      return;
+    }
+
     currentCtx?.ui?.setEditorText?.("");
     if (currentCtx?.isIdle?.()) {
       pi.sendUserMessage(cleaned);
@@ -75,12 +171,14 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
     ttsBusy = true;
     try {
       const speaker = await ensureTts();
+      setVoiceStatus("mode", "speaking");
       notify("🔊 Speaking response...", "info");
       await speaker.speak(text);
     } catch (err) {
       notify(`TTS error: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       ttsBusy = false;
+      setVoiceStatus("mode", continuous ? "idle" : "off");
     }
   }
 
@@ -104,6 +202,8 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
 
       mic.onSpeechStart((paddingChunk) => {
         stopTtsPlayback();
+        setVoiceStatus("hearing", "on");
+        setVoiceStatus("mode", "listening");
         speechActive = true;
         transcriber?.start();
         if (paddingChunk && paddingChunk.length > 0) {
@@ -116,6 +216,7 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
       });
 
       mic.onSilence(() => {
+        setVoiceStatus("hearing", "off");
         if (!manualRecording && listening && speechActive) {
           void stopListening(true);
         }
@@ -123,6 +224,7 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
 
       mic.onError((err) => {
         notify(`Mic error: ${err.message}`, "error");
+        setVoiceStatus("mode", "error");
         clearManualTimer();
         listening = false;
         speechActive = false;
@@ -141,6 +243,8 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
       const m = await ensureMic();
       speechActive = false;
       listening = true;
+      setVoiceStatus("enabled", "on");
+      setVoiceStatus("mode", "idle");
       await m.start();
     } catch (err) {
       listening = false;
@@ -160,10 +264,12 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
     const hadSpeech = speechActive;
     listening = false;
     speechActive = false;
+    setVoiceStatus("hearing", "off");
 
     try {
       await mic?.stop();
       if (transcribe && hadSpeech) {
+        setVoiceStatus("mode", "thinking");
         notify(`🎙️ Transcribing utterance with ${config.sttBackend}...`, "info");
         const transcript = await transcriber?.transcribe();
         if (transcript?.trim()) sendVoiceMessage(transcript);
@@ -174,6 +280,7 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
       notify(`VAD/Gemma error: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       transitioning = false;
+      if (!continuous) setVoiceStatus("mode", "idle");
       if (continuous && currentCtx?.hasUI) {
         setTimeout(() => {
           if (continuous && !listening && !transitioning) void startListening();
@@ -211,6 +318,8 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
       speechActive = false;
       manualRecording = true;
       listening = true;
+      setVoiceStatus("enabled", "on");
+      setVoiceStatus("mode", "listening");
       await m.start();
       manualTimer = setTimeout(() => {
         notify("🎙️ Ctrl+Space max recording time reached; transcribing now...", "warning");
@@ -234,9 +343,15 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
     manualRecording = false;
     listening = false;
     speechActive = false;
+    setVoiceStatus("hearing", "off");
+    setVoiceStatus("mode", "thinking");
     try {
+      if (transcribe && manualTailMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, manualTailMs));
+      }
       await mic?.stop();
       if (transcribe) {
+        setVoiceStatus("mode", "thinking");
         notify(`🎙️ Transcribing Ctrl+Space recording with ${config.sttBackend}...`, "info");
         const transcript = await transcriber?.transcribe();
         if (transcript?.trim()) sendVoiceMessage(transcript);
@@ -285,7 +400,18 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     currentCtx = ctx;
-    notify("🎙️ Pig voice ready. Ctrl+Space toggles recording. Use /vad and /tts commands.", "info");
+    notify("🎙️ Pig voice ready. Ctrl+Space toggles recording. Use /vad and /tts commands. Rofi Pipecat toggle controls continuous VAD.", "info");
+
+    statusPollTimer = setInterval(() => {
+      const shouldBeEnabled = getVoiceStatusEnabled();
+      if (shouldBeEnabled && !continuous && !manualRecording) {
+        continuous = true;
+        void startListening();
+      } else if (!shouldBeEnabled && continuous) {
+        continuous = false;
+        void stopListening(false);
+      }
+    }, 1000);
   });
 
   pi.on("turn_end", async (event) => {
@@ -396,8 +522,13 @@ export default function piVoiceGemma(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     continuous = false;
+    if (statusPollTimer) {
+      clearInterval(statusPollTimer);
+      statusPollTimer = null;
+    }
     clearManualTimer();
     stopTtsPlayback();
+    setVoiceStatus("enabled", "off");
     if (listening) await mic?.stop();
     mic?.dispose();
     transcriber?.clear();

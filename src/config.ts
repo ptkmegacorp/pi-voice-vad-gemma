@@ -14,9 +14,10 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   timeoutMs: 120000,
   maxTokens: 256,
   prompt: "Transcribe this speech. Output only the text.",
-  // Current USB mic is exposed as ALSA card 2, device 0.
-  // Use ALSA plughw so ALSA can resample its native stream to 16 kHz for Silero/Whisper.
-  micDevice: "plughw:2,0",
+  // Current USB mic/headset is ALSA card 1, device 0. Keep Auto Gain Control on
+  // with `amixer -c 1 sset 'Auto Gain Control' on`; when AGC is off this device
+  // can produce all-zero/silence captures.
+  micDevice: "plughw:1,0",
   vadSilenceMs: 800,
   sttBackend: "sherpa-moonshine",
   sherpaMoonshineModelDir: "/home/bot/.pi/models/moonshine-tiny",
@@ -36,8 +37,8 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   ttsMaxChars: 2000,
   ttsOutputPath: "/tmp/pi-voice/response.wav",
   playbackBinary: "aplay",
-  // Intel PCH analog output on Neptune; override if default ALSA playback fails.
-  playbackDevice: "plughw:1,0",
+  // HDMI/display speakers on Neptune: NVIDIA HDMI card 2, device 7 (DP/second display path).
+  playbackDevice: "plughw:2,7",
 };
 
 export function getConfigPath(): string {
